@@ -2,12 +2,16 @@ Attribute VB_Name = "KurumawariMacro"
 Option Explicit
 
 ' ============================================
-' 車割自動作成マクロ v1.0
+' 車割自動作成マクロ v1.1
 ' ============================================
 ' 使い方:
 ' 1. 「メンバー情報」シートにデータを入力
 ' 2. このマクロを実行（Alt+F8 → GenerateKurumawari）
 ' 3. 「車割結果」シートに結果が出力されます
+'
+' 更新履歴:
+' v1.1 (2025/11/02) - 統計情報の追加、エクスポート機能の追加
+' v1.0 (2025/11/02) - 初版リリース
 ' ============================================
 
 ' 定数定義
@@ -77,10 +81,20 @@ Sub GenerateKurumawari()
     ' 結果を出力
     OutputResults wsResult, groups
     
+    ' 統計情報を追加
+    AddStatistics wsResult, groups, members
+    
     Application.ScreenUpdating = True
     Application.Calculation = xlCalculationAutomatic
     
-    MsgBox "車割の作成が完了しました！", vbInformation
+    ' 完了メッセージに統計情報を含める
+    Dim totalCars As Integer
+    totalCars = UBound(groups) - LBound(groups) + 1
+    
+    MsgBox "車割の作成が完了しました！" & vbCrLf & vbCrLf & _
+           "総台数: " & totalCars & " 台" & vbCrLf & _
+           "総人数: " & (UBound(members) - LBound(members) + 1) & " 人", _
+           vbInformation, "車割作成完了"
     
     Exit Sub
     
@@ -428,4 +442,118 @@ Sub OutputResults(ws As Worksheet, groups() As CarGroup)
     ws.Activate
     ws.Range("A1").Select
     
+End Sub
+
+' ============================================
+' 統計情報の追加
+' ============================================
+Sub AddStatistics(ws As Worksheet, groups() As CarGroup, members() As MemberInfo)
+    Dim lastRow As Long
+    lastRow = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row
+    
+    ' 統計情報を追加（3行空けて）
+    Dim statsRow As Long
+    statsRow = lastRow + 3
+    
+    ' タイトル
+    ws.Cells(statsRow, 1).Value = "【統計情報】"
+    ws.Cells(statsRow, 1).Font.Bold = True
+    ws.Cells(statsRow, 1).Font.Size = 12
+    
+    statsRow = statsRow + 1
+    
+    ' 総台数
+    Dim totalCars As Integer
+    totalCars = UBound(groups) - LBound(groups) + 1
+    ws.Cells(statsRow, 1).Value = "総台数:"
+    ws.Cells(statsRow, 2).Value = totalCars & " 台"
+    statsRow = statsRow + 1
+    
+    ' 総人数
+    Dim totalMembers As Integer
+    totalMembers = UBound(members) - LBound(members) + 1
+    ws.Cells(statsRow, 1).Value = "総人数:"
+    ws.Cells(statsRow, 2).Value = totalMembers & " 人"
+    statsRow = statsRow + 1
+    
+    ' 運転可能な人数
+    Dim driverCount As Integer
+    driverCount = 0
+    Dim i As Long
+    For i = LBound(members) To UBound(members)
+        If members(i).CanDrive Then
+            driverCount = driverCount + 1
+        End If
+    Next i
+    ws.Cells(statsRow, 1).Value = "運転可能:"
+    ws.Cells(statsRow, 2).Value = driverCount & " 人"
+    statsRow = statsRow + 1
+    
+    ' 1台あたりの平均乗車人数
+    Dim avgPerCar As Double
+    avgPerCar = totalMembers / totalCars
+    ws.Cells(statsRow, 1).Value = "平均乗車人数:"
+    ws.Cells(statsRow, 2).Value = Format(avgPerCar, "0.0") & " 人/台"
+    
+    ' 統計情報の書式設定
+    With ws.Range(ws.Cells(lastRow + 3, 1), ws.Cells(statsRow, 2))
+        .Font.Color = RGB(0, 0, 139)
+        .Borders(xlEdgeTop).LineStyle = xlContinuous
+        .Borders(xlEdgeTop).Weight = xlMedium
+    End With
+    
+End Sub
+
+' ============================================
+' CSV形式でエクスポート（オプション機能）
+' ============================================
+Sub ExportToCSV()
+    On Error GoTo ErrorHandler
+    
+    Dim ws As Worksheet
+    Set ws = ThisWorkbook.Worksheets("車割結果")
+    
+    ' ファイル保存ダイアログ
+    Dim filePath As String
+    filePath = Application.GetSaveAsFilename( _
+        InitialFileName:="車割結果_" & Format(Date, "yyyymmdd") & ".csv", _
+        FileFilter:="CSV Files (*.csv), *.csv", _
+        Title:="CSVファイルとして保存")
+    
+    If filePath = "False" Then Exit Sub
+    
+    ' CSVとして保存
+    Dim lastRow As Long
+    lastRow = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row
+    
+    ' 統計情報の行を除外（【統計情報】が見つかるまで）
+    Dim exportRow As Long
+    exportRow = lastRow
+    Dim i As Long
+    For i = 1 To lastRow
+        If InStr(ws.Cells(i, 1).Value, "【統計情報】") > 0 Then
+            exportRow = i - 2
+            Exit For
+        End If
+    Next i
+    
+    ' エクスポート範囲をコピーして新しいブックに貼り付け
+    Dim newWb As Workbook
+    Set newWb = Workbooks.Add
+    
+    ws.Range(ws.Cells(1, 1), ws.Cells(exportRow, 8)).Copy
+    newWb.Sheets(1).Range("A1").PasteSpecial xlPasteValues
+    
+    ' CSVとして保存
+    Application.DisplayAlerts = False
+    newWb.SaveAs Filename:=filePath, FileFormat:=xlCSV
+    newWb.Close False
+    Application.DisplayAlerts = True
+    
+    MsgBox "CSVファイルを保存しました: " & vbCrLf & filePath, vbInformation
+    
+    Exit Sub
+    
+ErrorHandler:
+    MsgBox "エクスポートに失敗しました: " & Err.Description, vbCritical
 End Sub
